@@ -2,11 +2,16 @@ import json
 import boto3
 import os
 import urllib.parse
+from datetime import datetime
+import uuid  # To generate unique session IDs if needed
 
-# Get SNS Topic ARN from environment variable (recommended)
-SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
-
+# Initialize AWS clients
 s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('HoneypotLogs')
+
+# Get SNS Topic ARN from environment variable (optional)
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
 sns = boto3.client('sns') if SNS_TOPIC_ARN else None
 
 def lambda_handler(event, context):
@@ -29,7 +34,7 @@ def lambda_handler(event, context):
         print(content)
         print("=================================\n")
         
-        # Send SNS alert (if configured)
+        # Optional: send SNS alert
         if sns:
             message = f"""
 🚨 Honeypot Activity Detected!
@@ -45,8 +50,20 @@ Check CloudWatch for full details.
                 Subject="Honeypot Alert",
                 Message=message
             )
+        
+        # Write to DynamoDB
+        # Use a session ID from the log or generate a UUID
+        session_id = str(uuid.uuid4())
+        table.put_item(
+            Item={
+                'SessionID': session_id,                  # Partition key
+                'Timestamp': datetime.utcnow().isoformat(),  # Sort key / timestamp
+                'LogContent': content
+            }
+        )
+        print(f"[+] Log written to DynamoDB with SessionID: {session_id}")
 
     return {
         'statusCode': 200,
-        'body': json.dumps('Log processed and alert sent successfully')
+        'body': json.dumps('Log processed, alert sent, and DynamoDB updated!')
     }
