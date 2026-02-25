@@ -1,3 +1,3 @@
 # sentinel-s3-cloudproject
-free and educational cloudbased honeypot
-created by Bradley Sanchez and Alonzo Izzo for miami dade college cloud computing capstone
+Free and educational cloudbased honeypot
+created by Bradley Sanchez and Alonzo Izzo for Miami Dade College cloud computing capstone
