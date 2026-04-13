@@ -1,0 +1,125 @@
+import os
+import json
+import hashlib
+import urllib.parse
+from datetime import datetime, timezone
+import boto3
+ 
+s3 = boto3.client("s3")
+ddb = boto3.resource("dynamodb")
+sns = boto3.client("sns")
+ 
+TABLE_NAME = os.environ.get("DDB_TABLE", "CowrieEvents")
+SNS_TOPIC_ARN = "arn:aws:sns:us-east-2:736817645486:HoneyPot_Alerts"
+ 
+table = ddb.Table(TABLE_NAME)
+ 
+MAX_LINES_TO_PROCESS = 200  # keep it quick; increase later if needed
+ 
+def _safe(s, default="unknown"):
+    return s if isinstance(s, str) and s else default
+ 
+def _iso_to_compact(ts: str) -> str:
+    """
+    Cowrie timestamps are usually ISO 8601 like '2026-03-02T06:33:01.509505Z'.
+    Convert to a sortable string; if parsing fails, keep original.
+    """
+    if not ts:
+        return "0000-00-00T00:00:00Z"
+    return ts
+ 
+def _event_hash(ev: dict) -> str:
+    """
+    Create a deterministic hash for dedupe.
+    We hash key fields so the same event line produces the same id.
+    """
+    key_fields = {
+        "eventid": ev.get("eventid"),
+        "timestamp": ev.get("timestamp"),
+        "src_ip": ev.get("src_ip"),
+        "session": ev.get("session"),
+        "username": ev.get("username"),
+        "input": ev.get("input"),
+    }
+    raw = json.dumps(key_fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
+ 
+def lambda_handler(event, context):
+    print(f"Using DynamoDB table: {TABLE_NAME}")
+    written = 0
+    skipped_bad_json = 0
+    key = "unknown"
+ 
+    for record in event.get("Records", []):
+        bucket = record["s3"]["bucket"]["name"]
+        key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
+ 
+        print(f"Triggered by s3://{bucket}/{key}")
+ 
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        text = obj["Body"].read().decode("utf-8", errors="replace")
+ 
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        batch = lines[-MAX_LINES_TO_PROCESS:]
+ 
+        print(f"Total lines={len(lines)}; processing last {len(batch)}")
+ 
+        for ln in batch:
+            try:
+                ev = json.loads(ln)
+            except Exception:
+                skipped_bad_json += 1
+                continue
+ 
+            eventid = _safe(ev.get("eventid"))
+            ts = _safe(ev.get("timestamp"))
+            src_ip = _safe(ev.get("src_ip"))
+ 
+            # Dedupe ID
+            eid = _event_hash(ev)
+ 
+            # Keys: group by IP; order by time; uniqueness via hash
+            pk = f"IP#{src_ip}"
+            sk = f"{_iso_to_compact(ts)}#{eventid}#{eid}"
+ 
+            item = {
+                "pk": pk,
+                "sk": sk,
+                "eventid": eventid,
+                "timestamp": ts,
+                "src_ip": src_ip,
+                "session": _safe(ev.get("session")),
+                "sensor": "cowrie-ec2",
+                "username": ev.get("username"),
+                "password": ev.get("password"),
+                "input": ev.get("input"),
+                "message": ev.get("message"),
+                "dst_ip": ev.get("dst_ip"),
+                "dst_port": ev.get("dst_port"),
+            }
+ 
+            # PutItem is idempotent — same event overwrites identical item
+            table.put_item(Item=item)
+            written += 1
+ 
+    print(f"Written={written}, SkippedBadJson={skipped_bad_json}")
+ 
+    # Send SNS notification after DynamoDB write
+    try:
+        sns.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject="Sentinel-S3: DynamoDB Successfully Updated",
+            Message=(
+                f"Honeypot events have been written to the database.\n\n"
+                f"File processed: {key}\n"
+                f"New events written: {written}\n"
+                f"Bad lines skipped: {skipped_bad_json}\n\n"
+                f"View your dashboard:\n"
+                f"https://d1lntby3a9gmd4.cloudfront.net"
+            )
+        )
+        print(f"[+] SNS notification sent to {SNS_TOPIC_ARN}")
+    except Exception as e:
+        print(f"[!] SNS notification failed: {e}")
+ 
+    return {"ok": True, "written": written, "skipped_bad_json": skipped_bad_json}
