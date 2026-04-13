@@ -1,0 +1,69 @@
+import json
+import boto3
+import os
+import urllib.parse
+from datetime import datetime
+import uuid  # To generate unique session IDs if needed
+
+# Initialize AWS clients
+s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('HoneypotLogs')
+
+# Get SNS Topic ARN from environment variable (optional)
+SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
+sns = boto3.client('sns') if SNS_TOPIC_ARN else None
+
+def lambda_handler(event, context):
+
+    for record in event['Records']:
+        
+        # Get bucket and object key
+        bucket = record['s3']['bucket']['name']
+        key = urllib.parse.unquote_plus(record['s3']['object']['key'])
+        
+        # Read the S3 object
+        response = s3.get_object(Bucket=bucket, Key=key)
+        content = response['Body'].read().decode('utf-8')
+        
+        # Log full content to CloudWatch
+        print(f"\n===== New Log File Detected =====")
+        print(f"Bucket: {bucket}")
+        print(f"Key: {key}")
+        print("Log Content:\n")
+        print(content)
+        print("=================================\n")
+        
+        # Optional: send SNS alert
+        if sns:
+            message = f"""
+🚨 Honeypot Activity Detected!
+
+Bucket: {bucket}
+Log File: {key}
+
+Log file has been processed successfully.
+Check CloudWatch for full details.
+"""
+            sns.publish(
+                TopicArn=SNS_TOPIC_ARN,
+                Subject="Honeypot Alert",
+                Message=message
+            )
+        
+        # Write to DynamoDB
+        # Use a session ID from the log or generate a UUID
+        session_id = str(uuid.uuid4())
+        table.put_item(
+            Item={
+                'SessionID': session_id,                  # Partition key
+                'Timestamp': datetime.utcnow().isoformat(),  # Sort key / timestamp
+                'LogContent': content
+            }
+        )
+        print(f"[+] Log written to DynamoDB with SessionID: {session_id}")
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Log processed, alert sent, and DynamoDB updated!')
+    }
