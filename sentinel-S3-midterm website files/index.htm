@@ -1,0 +1,491 @@
+<!DOCTYPE HTML>
+<!--
+	Dimension by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+	
+	Modified for Sentinel-S3 Honeypot Project
+	Added: Cognito PKCE auth, DynamoDB events dashboard
+-->
+<html>
+	<head>
+		<title>Sentinel-S3</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<!--[if lte IE 9]><link rel="stylesheet" href="assets/css/ie9.css" /><![endif]-->
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+
+		<!-- Sentinel custom styles -->
+		<style>
+			/* ---- Stats bar ---- */
+			.sentinel-stats {
+				display: flex;
+				gap: 1rem;
+				margin: 0 0 1.5rem 0;
+				flex-wrap: wrap;
+			}
+			.sentinel-stat-card {
+				flex: 1;
+				min-width: 100px;
+				background: rgba(255,255,255,0.05);
+				border: 1px solid rgba(255,255,255,0.15);
+				border-radius: 6px;
+				padding: 0.75rem 1rem;
+				text-align: center;
+			}
+			.sentinel-stat-card .stat-value {
+				display: block;
+				font-size: 1.4rem;
+				font-weight: 600;
+				color: #ffffff;
+				line-height: 1.2;
+			}
+			.sentinel-stat-card .stat-label {
+				display: block;
+				font-size: 0.55rem;
+				letter-spacing: 0.15rem;
+				text-transform: uppercase;
+				opacity: 0.6;
+				margin-top: 0.25rem;
+			}
+
+			/* ---- Search + refresh bar ---- */
+			.sentinel-toolbar {
+				display: flex;
+				gap: 0.75rem;
+				margin: 0 0 1rem 0;
+				align-items: center;
+				flex-wrap: wrap;
+			}
+			.sentinel-toolbar input[type="text"] {
+				flex: 1;
+				min-width: 160px;
+				padding: 0.4rem 0.75rem;
+				background: rgba(255,255,255,0.07);
+				border: 1px solid rgba(255,255,255,0.2);
+				border-radius: 4px;
+				color: #fff;
+				font-size: 0.75rem;
+				outline: none;
+			}
+			.sentinel-toolbar input[type="text"]::placeholder {
+				opacity: 0.4;
+			}
+			.sentinel-toolbar button {
+				height: auto;
+				padding: 0.45rem 1rem;
+				font-size: 0.65rem;
+				letter-spacing: 0.12rem;
+				line-height: 1.4;
+			}
+
+			/* ---- Events table ---- */
+			.sentinel-table-wrap {
+				overflow-x: auto;
+				margin-bottom: 1rem;
+				border: 1px solid rgba(255,255,255,0.1);
+				border-radius: 6px;
+			}
+			#events-table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 0.7rem;
+			}
+			#events-table thead th {
+				background: rgba(255,255,255,0.08);
+				padding: 0.6rem 0.75rem;
+				text-align: left;
+				font-weight: 600;
+				letter-spacing: 0.1rem;
+				text-transform: uppercase;
+				font-size: 0.6rem;
+				border-bottom: 1px solid rgba(255,255,255,0.15);
+				white-space: nowrap;
+			}
+			#events-table tbody tr {
+				border-bottom: 1px solid rgba(255,255,255,0.06);
+				transition: background 0.15s;
+			}
+			#events-table tbody tr:last-child {
+				border-bottom: none;
+			}
+			#events-table tbody tr:hover {
+				background: rgba(255,255,255,0.04);
+			}
+			#events-table tbody td {
+				padding: 0.55rem 0.75rem;
+				vertical-align: top;
+				color: rgba(255,255,255,0.85);
+			}
+			.sentinel-ip {
+				font-family: monospace;
+				color: #7ecfff;
+			}
+			.sentinel-commands {
+				font-family: monospace;
+				font-size: 0.65rem;
+				opacity: 0.75;
+				max-width: 180px;
+				word-break: break-all;
+			}
+
+			/* ---- Pagination ---- */
+			.sentinel-pagination {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 1rem;
+				margin-top: 0.5rem;
+			}
+			.sentinel-pagination button {
+				height: auto;
+				padding: 0.35rem 0.9rem;
+				font-size: 0.6rem;
+				letter-spacing: 0.1rem;
+				line-height: 1.4;
+			}
+			.sentinel-pagination button:disabled {
+				opacity: 0.25;
+				pointer-events: none;
+			}
+			#page-info {
+				font-size: 0.65rem;
+				opacity: 0.6;
+				letter-spacing: 0.08rem;
+			}
+
+			/* ---- Loading pulse ---- */
+			.sentinel-loading {
+				opacity: 0.5;
+				animation: sentinel-pulse 1.2s ease-in-out infinite;
+			}
+			@keyframes sentinel-pulse {
+				0%, 100% { opacity: 0.3; }
+				50%       { opacity: 0.8; }
+			}
+
+			/* ---- Login article ---- */
+			.sentinel-login-box {
+				margin-top: 1rem;
+			}
+			.sentinel-login-box p {
+				margin-bottom: 1.5rem;
+			}
+			.sentinel-user-info {
+				display: none;
+				background: rgba(255,255,255,0.05);
+				border: 1px solid rgba(255,255,255,0.1);
+				border-radius: 6px;
+				padding: 0.75rem 1rem;
+				margin-bottom: 1rem;
+				font-size: 0.75rem;
+				opacity: 0.8;
+			}
+
+			/* ---- Dashboard header row ---- */
+			.sentinel-dash-header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				margin-bottom: 1rem;
+				flex-wrap: wrap;
+				gap: 0.5rem;
+			}
+			.sentinel-dash-header h2 {
+				margin: 0;
+			}
+			.sentinel-dash-header button {
+				height: auto;
+				padding: 0.35rem 0.85rem;
+				font-size: 0.6rem;
+				letter-spacing: 0.1rem;
+				line-height: 1.4;
+			}
+		</style>
+	</head>
+	<body>
+
+		<!-- Wrapper -->
+		<div id="wrapper">
+
+			<!-- Header -->
+			<header id="header">
+				<div class="logo">
+					<span class="icon fa-diamond"></span>
+				</div>
+				<div class="content">
+					<div class="inner">
+						<h1>Sentinel-S3</h1>
+						<p>An educational and free honeypot simulation.<br />
+						Made by Bradley Sanchez &amp; Alonzo Izzo</p>
+					</div>
+				</div>
+				<nav>
+					<ul>
+						<li><a href="#intro">Github</a></li>
+						<li><a href="#work">Info</a></li>
+						<li><a href="#about" id="nav-login-btn">Login</a></li>
+						<li><a href="#contact">Contact</a></li>
+					</ul>
+				</nav>
+			</header>
+
+			<!-- Main -->
+			<div id="main">
+
+				<!-- GitHub -->
+				<article id="intro">
+					<h2 class="major">GitHub</h2>
+					<span class="image main"><img src="images/pic01.jpg" alt="" /></span>
+					<p>You can access the official Sentinel-S3 GitHub repository below:</p>
+					<p><a href="https://github.com/bsanchez1705-0125/sentinel-s3-cloudproject/tree/bsanchez1705-0125-patch-2" target="_blank">View Sentinel-S3 Repository</a></p>
+				</article>
+
+				<!-- Info -->
+				<article id="work">
+					<h2 class="major">Info</h2>
+					<span class="image main"><img src="images/pic02.jpg" alt="" /></span>
+					<p>Sentinel-S3 is an educational and modular honeypot simulation
+					designed to monitor, log, and analyze unauthorized login attempts
+					within a controlled cloud environment.</p>
+					<p>The goal of Sentinel-S3 is to simulate real-world attack behavior
+					while logging authentication attempts through AWS services such as
+					CloudWatch, CloudTrail, and Amazon S3. This allows administrators to
+					observe attack patterns, collect forensic data, and better understand
+					cloud security monitoring.</p>
+				</article>
+
+				<!-- Login -->
+				<article id="about">
+					<h2 class="major">Login</h2>
+					<span class="image main"><img src="images/pic03.jpg" alt="" /></span>
+
+					<div class="sentinel-login-box">
+						<!-- Shown when NOT logged in -->
+						<div id="login-prompt">
+							<p>This portal is restricted to authorized administrators of the
+							Sentinel-S3 honeypot project. All access is monitored and logged.</p>
+							<ul class="actions">
+								<li>
+									<button class="special" onclick="SentinelAuth.login()">
+										Sign In with AWS Cognito
+									</button>
+								</li>
+							</ul>
+						</div>
+
+						<!-- Shown when logged in -->
+						<div id="login-authenticated" style="display:none;">
+							<div class="sentinel-user-info" id="user-info-bar">
+								&#x2705; Signed in as <strong id="user-email-display"></strong>
+							</div>
+							<p>You are authenticated. Open the Dashboard to view live honeypot
+							intrusion data pulled from DynamoDB.</p>
+							<ul class="actions">
+								<li>
+									<button class="special" onclick="openDashboard()">
+										Open Dashboard
+									</button>
+								</li>
+								<li>
+									<button onclick="SentinelAuth.logout()">
+										Sign Out
+									</button>
+								</li>
+							</ul>
+						</div>
+					</div>
+				</article>
+
+				<!-- Dashboard (auth-gated) -->
+				<article id="dashboard">
+					<div class="sentinel-dash-header">
+						<h2 class="major" style="border:none; padding:0; margin:0;">Dashboard</h2>
+						<button onclick="SentinelDashboard.fetchEvents()" title="Refresh data">
+							&#x21bb; Refresh
+						</button>
+					</div>
+
+					<!-- Stats -->
+					<div class="sentinel-stats">
+						<div class="sentinel-stat-card">
+							<span class="stat-value" id="stat-total">—</span>
+							<span class="stat-label">Total Events</span>
+						</div>
+						<div class="sentinel-stat-card">
+							<span class="stat-value" id="stat-ips">—</span>
+							<span class="stat-label">Unique IPs</span>
+						</div>
+						<div class="sentinel-stat-card">
+							<span class="stat-value" id="stat-users">—</span>
+							<span class="stat-label">Usernames Tried</span>
+						</div>
+						<div class="sentinel-stat-card">
+							<span class="stat-value" id="stat-last">—</span>
+							<span class="stat-label">Last Seen</span>
+						</div>
+					</div>
+
+					<!-- Search toolbar -->
+					<div class="sentinel-toolbar">
+						<input type="text" id="event-search"
+							placeholder="Filter by IP, username, password, command…"
+							oninput="SentinelDashboard.applyFilter(this.value)" />
+						<button onclick="SentinelAuth.logout()">Sign Out</button>
+					</div>
+
+					<!-- Events table -->
+					<div class="sentinel-table-wrap">
+						<table id="events-table">
+							<thead>
+								<tr>
+									<th>Timestamp</th>
+									<th>Source IP</th>
+									<th>Username</th>
+									<th>Password</th>
+									<th>Commands</th>
+								</tr>
+							</thead>
+							<tbody id="events-tbody">
+								<tr>
+									<td colspan="5" style="text-align:center; padding:2em 0; opacity:0.4;">
+										Loading…
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Pagination -->
+					<div class="sentinel-pagination">
+						<button id="page-prev" onclick="SentinelDashboard.prevPage()">&#8249; Prev</button>
+						<span id="page-info">Page 1</span>
+						<button id="page-next" onclick="SentinelDashboard.nextPage()">Next &#8250;</button>
+					</div>
+				</article>
+
+				<!-- Contact -->
+				<article id="contact">
+					<h2 class="major">Contact</h2>
+					<form method="post" action="#">
+						<div class="field half first">
+							<label for="name">Name</label>
+							<input type="text" name="name" id="name" />
+						</div>
+						<div class="field half">
+							<label for="email">Email</label>
+							<input type="text" name="email" id="email" />
+						</div>
+						<div class="field">
+							<label for="message">Message</label>
+							<textarea name="message" id="message" rows="4"></textarea>
+						</div>
+						<ul class="actions">
+							<li><input type="submit" value="Send Message" class="special" /></li>
+							<li><input type="reset" value="Reset" /></li>
+						</ul>
+					</form>
+					<ul class="icons">
+						<li><a href="#" class="icon fa-twitter"><span class="label">Twitter</span></a></li>
+						<li><a href="#" class="icon fa-facebook"><span class="label">Facebook</span></a></li>
+						<li><a href="#" class="icon fa-instagram"><span class="label">Instagram</span></a></li>
+						<li><a href="#" class="icon fa-github"><span class="label">GitHub</span></a></li>
+					</ul>
+				</article>
+
+			</div>
+
+			<!-- Footer -->
+			<footer id="footer">
+				<p class="copyright">&copy; Sentinel-S3. Bradley Sanchez &amp; Alonzo Izzo.</p>
+			</footer>
+
+		</div>
+
+		<!-- BG -->
+		<div id="bg"></div>
+
+		<!-- Scripts: original Dimension framework -->
+		<script src="assets/js/jquery.min.js"></script>
+		<script src="assets/js/skel.min.js"></script>
+		<script src="assets/js/util.js"></script>
+		<script src="assets/js/main.js"></script>
+
+		<!-- Sentinel scripts (load AFTER main.js) -->
+		<script src="config.js"></script>
+		<script src="auth.js"></script>
+		<script src="dashboard.js"></script>
+
+		<script>
+		// =====================================================
+		//  Sentinel bootstrap — runs after DOM + scripts load
+		// =====================================================
+		(async function () {
+
+			// 1. Handle Cognito redirect callback (code in URL)
+			const hasCode = new URLSearchParams(window.location.search).has("code");
+			if (hasCode) {
+				const ok = await SentinelAuth.handleCallback();
+				if (ok) {
+					// Open the dashboard automatically after successful login
+					openDashboard();
+				} else {
+					// Token exchange failed — show login panel
+					window.location.hash = "#about";
+				}
+				return;
+			}
+
+			// 2. Already have a valid session?
+			if (SentinelAuth.isAuthenticated()) {
+				updateLoginUI(true);
+				// If URL hash was #dashboard before redirect, reopen it
+				if (window.location.hash === "#dashboard") {
+					openDashboard();
+				}
+			} else {
+				updateLoginUI(false);
+			}
+
+		})();
+
+		// ---- UI helpers -------------------------------------
+
+		function updateLoginUI(isLoggedIn) {
+			document.getElementById("login-prompt").style.display        = isLoggedIn ? "none"  : "block";
+			document.getElementById("login-authenticated").style.display = isLoggedIn ? "block" : "none";
+
+			if (isLoggedIn) {
+				const emailEl = document.getElementById("user-email-display");
+				const infoBar = document.getElementById("user-info-bar");
+				if (emailEl) emailEl.textContent = SentinelAuth.getUserEmail();
+				if (infoBar) infoBar.style.display = "block";
+
+				// Rename nav "Login" → "Dashboard"
+				const navBtn = document.getElementById("nav-login-btn");
+				if (navBtn) {
+					navBtn.textContent = "Dashboard";
+					navBtn.href = "#dashboard";
+				}
+			}
+		}
+
+		function openDashboard() {
+			updateLoginUI(true);
+			// Use Dimension's hash navigation to open the dashboard article
+			window.location.hash = "#dashboard";
+			// Fetch data once the panel is open
+			setTimeout(() => SentinelDashboard.fetchEvents(), 400);
+		}
+
+		// Guard: if someone navigates to #dashboard without auth, redirect to login
+		window.addEventListener("hashchange", function () {
+			if (window.location.hash === "#dashboard" && !SentinelAuth.isAuthenticated()) {
+				window.location.hash = "#about";
+			}
+		});
+		</script>
+
+	</body>
+</html>
